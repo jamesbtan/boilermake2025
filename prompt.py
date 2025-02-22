@@ -57,4 +57,5 @@ Only use stocks which are listed in the historical data.
 ## Currently held stocks
 """
 
-print(prompt)
+with open('prompt.txt', 'w') as f:
+    f.write(prompt)
