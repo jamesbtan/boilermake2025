@@ -23,11 +23,53 @@ from pymongo.server_api import ServerApi
 
 import modal
 
+import json
+
 
 uri = "mongodb+srv://boilermaker2025:boilermaker2025@cluster0.uaozv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 
 client = MongoClient(uri, server_api=ServerApi('1'))
+
+def fetch_from_mongo():
+    local_prompt = '''Introduction
+You are acting as a top-tier financial trader.
+You must make a statement of which stocks to buy and which to sell on certain days.
+
+# Output
+Please provide output in the following format:
+
+    [{\"ticker\": \"AAPL\", \"count\": -3 },
+    { \"ticker\": \"MSFT\", \"count\": 2 }]
+
+this is only an example for the format (json array with multiple json objects. I want to be able to parse this with json in python so make sure it is clean) you should include the stocks which you think are important
+and include as many as possible
+Use positive counts to signify a buy, and negative counts for a sell.
+
+# Provided information
+You will receive the following information: recent news headlines, recently modified laws,
+historical stock data from the previous day with tickers as well as
+their open price, close price, highest price, lowest price, and number of transactions,
+and currently held stock tickers with their quantities.
+
+#Think quick and fast but be as accurate as possible
+#All of my savings are dependent on your decisions
+## Recent news headlines
+'''
+    db = client["News_And_Legislation_Info"]
+    col = db["News"]
+    x = col.find()
+    news_string = " "
+    for data in x:
+        news_string += "-" + data["title"] + "-desc: " + data["description"] + "\n"
+    col2 = db["Legislation"]
+    y = col2.find()
+    legislation_string = "These are the latest legislative laws passed: "
+    for data in y:
+        legislation_string += "-" + data["title"] + "-"
+    local_prompt += news_string + "\n" + legislation_string
+    return local_prompt
+#prompt = fetch_from_mongo()
 # ## What GPU can run DeepSeek-R1? What GPU can run Phi-4?
 
 # Our large model is a real whale:
@@ -74,14 +116,8 @@ def main(
 ):
     """Run llama.cpp inference on Modal for phi-4 or deepseek r1."""
     import shlex
-
+    import json
     org_name = "unsloth"
-
-    try:
-        client.admin.command('ping')
-        print("Successfulyl connected to MongodDB")
-    expcept Exception as e:
-        print(e)
 
     # two sample models: the diminuitive phi-4 and the chonky deepseek r1
     if model.lower() == "phi-4":
@@ -119,10 +155,21 @@ def main(
         args,
         store_output=model.lower() == "deepseek-r1",
     )
-    output_path = Path("/tmp") / f"llama-cpp-{model}.txt"
+
+    start_index = result.find("</think>") + 8
+    end_index = result.find("[end of text]")
+    json_string = result[start_index : end_index]
+    cleaned_json_string = json_string.replace('`', '')
+    json_data = json.loads(cleaned_json_string)
+
+    db = client["News_And_Legislation_Info"]
+    holdings = db["Holdings"]
+    holdings.insert_many(json_data)
+
+    output_path = Path("./results") / f"llama-cpp-{model}.txt"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"🦙 writing response to {output_path}")
-    output_path.write_text(result)
+    output_path.write_text(cleaned_json_string)
 
 
 # You can trigger inference from the command line with
@@ -199,6 +246,7 @@ image = (
     .apt_install(
         "git", "build-essential", "cmake", "curl", "libcurl4-openssl-dev"
     )
+    .pip_install("pymongo")
     .run_commands("git clone https://github.com/ggerganov/llama.cpp")
     .run_commands(
         "cmake llama.cpp -B llama.cpp/build "
@@ -230,6 +278,7 @@ cache_dir = "/root/.cache/llama.cpp"
 download_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("huggingface_hub[hf_transfer]==0.26.2")
+    .pip_install("pymongo")
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
@@ -265,7 +314,7 @@ def download_model(repo_id, allow_patterns, revision: str = None):
 # like our local command line,
 # we'll store the results on a Modal Volume for safe-keeping.
 
-results = modal.Volume.from_name("llamacpp-results", create_if_missing=True)
+results = modal.Volume.from_name("deepseek-strategy", create_if_missing=True)
 results_dir = "/root/results"
 
 # You can retrieve the results later in a number of ways.
@@ -329,8 +378,12 @@ def llama_cpp_inference(
     args: list[str] = None,
     store_output: bool = True,
 ):
+    import json
     import subprocess
     from uuid import uuid4
+
+
+    prompt = fetch_from_mongo()
 
     if prompt is None:
         prompt = DEFAULT_PROMPT  # see end of file
@@ -393,19 +446,7 @@ def llama_cpp_inference(
 # [unsloth's announcement](https://unsloth.ai/blog/deepseekr1-dynamic)
 # of their 1.58 bit quantization of DeepSeek-R1.
 
-DEFAULT_PROMPT = """Create a Flappy Bird game in Python. You must include these things:
-
-    You must use pygame.
-    The background color should be randomly chosen and is a light shade. Start with a light blue color.
-    Pressing SPACE multiple times will accelerate the bird.
-    The bird's shape should be randomly chosen as a square, circle or triangle. The color should be randomly chosen as a dark color.
-    Place on the bottom some land colored as dark brown or yellow chosen randomly.
-    Make a score shown on the top right side. Increment if you pass pipes and don't hit them.
-    Make randomly spaced pipes with enough space. Color them randomly as dark green or light brown or a dark gray shade.
-    When you lose, show the best score. Make the text inside the screen. Pressing q or Esc will quit the game. Restarting is pressing SPACE again.
-
-The final game should be inside a markdown section in Python. Check your code for errors and fix them before the final markdown section."""
-
+DEFAULT_PROMPT = """ NA """
 
 def stream_output(stream, queue, write_stream):
     """Reads lines from a stream and writes to a queue and a write stream."""

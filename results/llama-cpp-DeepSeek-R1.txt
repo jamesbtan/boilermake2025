@@ -1,0 +1,16 @@
+
+
+```
+[{"ticker": "AAPL", "count": -2},
+{"ticker": "UNH", "count": -3},
+{"ticker": "RIVN", "count": -3},
+{"ticker": "TSLA", "count": -2},
+{"ticker": "BABA", "count": 3},
+{"ticker": "COIN", "count": 2},
+{"ticker": "XOM", "count": 2},
+{"ticker": "MSFT", "count": 3},
+{"ticker": "CVX", "count": 2},
+{"ticker": "COST", "count": 2},
+{"ticker": "PANW", "count": 2},
+{"ticker": "MP", "count": 1}]
+``` 
