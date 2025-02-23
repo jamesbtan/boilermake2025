@@ -34,14 +34,14 @@ client = MongoClient(uri, server_api=ServerApi('1'))
 
 def fetch_from_mongo():
     local_prompt = '''Introduction
-You are acting as a top-tier financial trader.
-You must make a statement of which stocks to buy and which to sell on certain days.
+You are acting as a top-tier financial trader at a big firm. Your role is to analyse news data, legislation data, historical stock price data and analyse sentiments to determine which stocks should be bought or sold
+
 
 # Output
 Please provide output in the following format:
     <JSON_START>
     [{\"ticker\": \"STOCK1\", \"count\": 13 },
-    { \"ticker\": \"STOCK2\", \"count\": 2 }]
+    { \"ticker\": \"STOCK2\", \"count\": 20 }]
     <JSON_END>
     <ADVICE_START>
 	Insert here a properly formatted and concise explanation for why you should buy or sell a stock and the amount/ confidence level. Again, talk as if you are a quantitative trader at a top tier firm giving high value advice
@@ -50,7 +50,8 @@ this is only an example for the format (json array with multiple json objects. I
 and include as many as possible.
 here count is the amount left after buying/selling how much ever you recommend. that is, it is totalHoldings amount - yourrecommendSelling amount or + your RecommendedBuyingAmount
 Try to think critically about the number to sell and to buy
-
+Your advice within the advice tags should contain a <br> tag after each point/stock  and be foramtted in bullet points
+You are  a professional stock broker so should maintian professionalism while reporting
 # Provided information
 You will receive the following information: recent news headlines, recently modified laws,
 historical stock data from the previous day with tickers as well as
@@ -122,7 +123,7 @@ and currently held stock tickers with their quantities.
 # That's small enough that it can be comfortably run on a CPU,
 # especially for a single-user setup like the one we'll build here.
 
-GPU_CONFIG = "L40S:4"  # for DeepSeek-R1, literal `None` for phi-4
+GPU_CONFIG = "L40S:6"  # for DeepSeek-R1, literal `None` for phi-4
 
 # ## Calling a Modal Function from the command line
 
@@ -205,7 +206,7 @@ def main(
     )
 
     advice_start = result.find("<ADVICE_START>") + 14
-    advice_end = result.find("<ADVICE_END>")
+    advice_end = result.find("</ADVICE_END>")
     advice_substring = result[advice_start : advice_end]
     advice_substring = advice_substring.replace('"', '')
     advice_substring = advice_substring.replace('\n', '')
@@ -264,7 +265,7 @@ DEFAULT_DEEPSEEK_R1_ARGS = [  # good default llama.cpp cli args for deepseek-r1
     "--temp",
     "0.6",
     "--ctx-size",
-    "8192",
+    "20000",
 ]
 
 # ## Compiling llama.cpp with CUDA support
