@@ -20,9 +20,10 @@
 from pathlib import Path
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
-
+from datetime import date
+from datetime import timedelta
 import modal
-
+import requests
 import json
 
 
@@ -38,13 +39,17 @@ You must make a statement of which stocks to buy and which to sell on certain da
 
 # Output
 Please provide output in the following format:
-
-    [{\"ticker\": \"AAPL\", \"count\": -3 },
-    { \"ticker\": \"MSFT\", \"count\": 2 }]
-
+    <JSON_START>
+    [{\"ticker\": \"STOCK1\", \"count\": 13 },
+    { \"ticker\": \"STOCK2\", \"count\": 2 }]
+    <JSON_END>
+    <ADVICE_START>
+	Insert here a properly formatted and concise explanation for why you should buy or sell a stock and the amount/ confidence level. Again, talk as if you are a quantitative trader at a top tier firm giving high value advice
+    <ADVICE_END>
 this is only an example for the format (json array with multiple json objects. I want to be able to parse this with json in python so make sure it is clean) you should include the stocks which you think are important
-and include as many as possible
-Use positive counts to signify a buy, and negative counts for a sell.
+and include as many as possible.
+here count is the amount left after buying/selling how much ever you recommend. that is, it is totalHoldings amount - yourrecommendSelling amount or + your RecommendedBuyingAmount
+Try to think critically about the number to sell and to buy
 
 # Provided information
 You will receive the following information: recent news headlines, recently modified laws,
@@ -66,8 +71,36 @@ and currently held stock tickers with their quantities.
     y = col2.find()
     legislation_string = "These are the latest legislative laws passed: "
     for data in y:
-        legislation_string += "-" + data["title"] + "-"
+        legislation_string += "-" + data["title"] + "-\n"
     local_prompt += news_string + "\n" + legislation_string
+    current_holdings = "These are my current holdings :"
+    col3 = db["Holdings"]
+    z = col3.find()
+    for data in z:
+        current_holdings += "stock ticker: " + str(data["ticker"]) + " and stock amount: " + str(data["count"]) + " \n"
+    print(current_holdings)
+    local_prompt += current_holdings
+
+    #getting todays date
+    today = date.today()
+    yesterday = str(today - timedelta(days = 3))
+    myobj = { "from" : yesterday}
+    
+    
+    stock_response = requests.post("https://jamestan-bmake2025-b-89.deno.dev/stocks", json = myobj)
+    #print(stock_response)
+
+    local_prompt += stock_response.text
+    #stock_response = json.dumps(stock_response)
+    #stock_response = stock_response.json()
+    #col4 = db["Stock_Time_Series"]
+    #a = col4.find()
+    '''
+    stock_data = "These are the historical prices for the stocks\n"
+    for data in stock_response:
+        stock_data += "Stock " + data["ticker"] + "had highest value: " + str(data["high"]) + " and lowest value: " + str(data["low"]) + " and open value of : " + str(data["open"]) + " and close value of: " + str(data["close"]) + " on the day of " +  str(data["date"]) + "\n"
+    local_prompt += stock_data '''
+    #local_prompt += current_holdings
     return local_prompt
 #prompt = fetch_from_mongo()
 # ## What GPU can run DeepSeek-R1? What GPU can run Phi-4?
@@ -155,21 +188,42 @@ def main(
         args,
         store_output=model.lower() == "deepseek-r1",
     )
-
-    start_index = result.find("</think>") + 8
-    end_index = result.find("[end of text]")
+    think_end = result.find("</think>")
+    result = result[think_end: ]
+    start_index = result.find("<JSON_START>") + 12
+    end_index = result.find("<JSON_END>")
     json_string = result[start_index : end_index]
     cleaned_json_string = json_string.replace('`', '')
     json_data = json.loads(cleaned_json_string)
 
     db = client["News_And_Legislation_Info"]
     holdings = db["Holdings"]
-    holdings.insert_many(json_data)
+    for stock in json_data:
+        holdings.update_one({"ticker": stock["ticker"]},  # Match on the ticker field
+        {"$set": {"count": stock["count"]}},  # Update the count field
+        upsert=True
+    )
 
+    advice_start = result.find("<ADVICE_START>") + 14
+    advice_end = result.find("<ADVICE_END>")
+    advice_substring = result[advice_start : advice_end]
+    advice_substring = advice_substring.replace('"', '')
+    advice_substring = advice_substring.replace('\n', '')
+    format_string = "{\"advice\": \"" + advice_substring + "\"}"
+
+    big_string = cleaned_json_string + "\n" + format_string
     output_path = Path("./results") / f"llama-cpp-{model}.txt"
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(big_string)
+
+    advice_json = json.loads(format_string)
+    advice_blob = db["Advice"]
+    advice_blob.replace_one({}, advice_json, upsert=True)
+    #output_path = Path("./results") / f"llama-cpp-{model}.txt"
+    #output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"🦙 writing response to {output_path}")
-    output_path.write_text(cleaned_json_string)
+    #big_string = cleaned_json_string + "\n" + format_string
+    #output_path.write_text(big_string)
 
 
 # You can trigger inference from the command line with
@@ -247,6 +301,7 @@ image = (
         "git", "build-essential", "cmake", "curl", "libcurl4-openssl-dev"
     )
     .pip_install("pymongo")
+    .pip_install("requests")
     .run_commands("git clone https://github.com/ggerganov/llama.cpp")
     .run_commands(
         "cmake llama.cpp -B llama.cpp/build "
@@ -279,6 +334,7 @@ download_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("huggingface_hub[hf_transfer]==0.26.2")
     .pip_install("pymongo")
+    .pip_install("requests")
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
